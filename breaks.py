@@ -12,7 +12,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 df = conn.read(worksheet="Hoy", ttl=10)
 
 st.title("☕ Gestión de Breaks")
-st.write("Seleccioná tu horario. Recordá que el break es de 30 min.")
+st.write("Seleccioná tu horario.")
 
 # --- VISTA DEL TABLERO ---
 st.subheader("📊 Disponibilidad para Hoy")
@@ -31,7 +31,7 @@ st.dataframe(
 st.divider()
 
 # --- FORMULARIO DE RESERVA ---
-st.subheader("🙋‍♂️ Reservar mi lugar")
+st.subheader("🙋‍♂️ Reservar break")
 
 # Filtrar solo horarios que dicen "Libre"
 horarios_libres = df[df["Agente"] == "Libre"]["Horario"].tolist()
