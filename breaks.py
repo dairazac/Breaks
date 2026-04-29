@@ -2,6 +2,8 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import time
+import pytz
+from datetime import datetime
 
 # Configuración de la pestaña
 st.set_page_config(page_title="Breaks Contact Center", page_icon="☕")
@@ -53,8 +55,8 @@ st.write("Revisá la tabla y gestioná tu break de 30 min.")
 
 # Conexión con el Sheet
 conn = st.connection("gsheets", type=GSheetsConnection)
-df = conn.read(worksheet="Hoy", ttl=10)
-df["Horario"] = pd.to_datetime(df["Horario"]).dt.strftime('%H:%M')
+df_completo = conn.read(worksheet="Hoy", ttl=10)
+df_completo["Horario"] = pd.to_datetime(df_completo["Horario"]).dt.strftime('%H:%M')
 
 # --- BOTÓN DE ACTUALIZACIÓN MANUAL ---
 if st.button("🔄 Actualizar Tablero"):
@@ -64,12 +66,44 @@ if st.button("🔄 Actualizar Tablero"):
 # --- VISTA DEL TABLERO ---
 st.subheader("📊 Disponibilidad para Hoy")
 
+# Selector de vista
+vista = st.radio(
+    "Filtrar horarios:",
+    ["Disponibles (A partir de ahora)", "Ver todo el día"],
+    horizontal=True
+)
+
+df_mostrar = df_completo.copy()
+
+# Lógica del filtro de tiempo
+if vista == "Disponibles (A partir de ahora)":
+    # Obtenemos la hora de Argentina
+    tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+    ahora = datetime.now(tz_arg)
+    
+    # Convertimos la hora actual a decimal (ej: 14:30 -> 14.5)
+    valor_ahora = ahora.hour + (ahora.minute / 60.0)
+    
+    # Función para darle valor matemático a los horarios del Excel
+    def calcular_valor_horario(hora_str):
+        try:
+            h, m = map(int, str(hora_str).split(':'))
+            return h + (m / 60.0)
+        except:
+            return 0 # Por si hay un formato raro
+            
+    # Filtramos la tabla ocultando lo viejo
+    df_mostrar["_valor"] = df_mostrar["Horario"].apply(calcular_valor_horario)
+    df_mostrar = df_mostrar[df_mostrar["_valor"] >= valor_ahora]
+    df_mostrar = df_mostrar.drop(columns=["_valor"])
+
+# Estilo de colores para la tabla
 def color_agente(val):
     color = '#28a745' if val == 'Libre' else '#dc3545'
     return f'color: {color}; font-weight: bold'
 
 st.dataframe(
-    df.style.map(color_agente, subset=['Agente']), 
+    df_mostrar.style.map(color_agente, subset=['Agente']), 
     use_container_width=True, 
     hide_index=True
 )
@@ -77,10 +111,10 @@ st.dataframe(
 st.divider()
 
 # --- FORMULARIO DE RESERVA / CANCELACIÓN ---
-st.subheader("🙋‍♂️ Mi Break")
+st.subheader("🙋‍♂️ Reservar break")
 
-# Buscamos si el usuario actual ya tiene alguna fila con su nombre
-mi_break_actual = df[df["Agente"] == st.session_state.nombre]
+# Buscamos si el usuario actual ya tiene alguna fila con su nombre (en la tabla completa)
+mi_break_actual = df_completo[df_completo["Agente"] == st.session_state.nombre]
 
 if not mi_break_actual.empty:
     # EL AGENTE YA TIENE UN BREAK AGENDADO
@@ -90,8 +124,8 @@ if not mi_break_actual.empty:
     
     if st.button("🗑️ Eliminar / Liberar mi Break", type="primary"):
         # Pisamos su nombre con "Libre"
-        df.loc[df["Horario"] == horario_actual, "Agente"] = "Libre"
-        conn.update(worksheet="Hoy", data=df)
+        df_completo.loc[df_completo["Horario"] == horario_actual, "Agente"] = "Libre"
+        conn.update(worksheet="Hoy", data=df_completo)
         st.cache_data.clear()
         
         st.success("¡Tu break fue eliminado! Ya podés agendar uno nuevo.")
@@ -99,8 +133,8 @@ if not mi_break_actual.empty:
         st.rerun()
 
 else:
-    # EL AGENTE NO TIENE BREAK, LE MOSTRAMOS PARA AGENDAR
-    horarios_libres = df[df["Agente"] == "Libre"]["Horario"].tolist()
+    # EL AGENTE NO TIENE BREAK, LE MOSTRAMOS PARA AGENDAR (De la tabla filtrada)
+    horarios_libres = df_mostrar[df_mostrar["Agente"] == "Libre"]["Horario"].tolist()
 
     if not horarios_libres:
         st.warning("¡Todos los horarios están ocupados por hoy!")
@@ -113,8 +147,8 @@ else:
 
             if btn_reservar:
                 # Escribimos el nombre del usuario de la sesión directamente
-                df.loc[df["Horario"] == horario_elegido, "Agente"] = st.session_state.nombre
-                conn.update(worksheet="Hoy", data=df)
+                df_completo.loc[df_completo["Horario"] == horario_elegido, "Agente"] = st.session_state.nombre
+                conn.update(worksheet="Hoy", data=df_completo)
                 st.cache_data.clear()
                 
                 st.success(f"¡Listo! Reservaste a las {horario_elegido}")
