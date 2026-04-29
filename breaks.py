@@ -49,12 +49,17 @@ with col2:
         st.session_state.logueado = False
         st.rerun()
 
-st.write("Revisá la tabla y gestioná tu horario de 30 min.")
+st.write("Revisá la tabla y gestioná tu break de 30 min.")
 
 # Conexión con el Sheet
 conn = st.connection("gsheets", type=GSheetsConnection)
 df = conn.read(worksheet="Hoy", ttl=10)
 df["Horario"] = pd.to_datetime(df["Horario"]).dt.strftime('%H:%M')
+
+# --- BOTÓN DE ACTUALIZACIÓN MANUAL ---
+if st.button("🔄 Actualizar Tablero"):
+    st.cache_data.clear() # Borra cache
+    st.rerun() # Recarga la app
 
 # --- VISTA DEL TABLERO ---
 st.subheader("📊 Disponibilidad para Hoy")
