@@ -88,12 +88,18 @@ if vista == "Disponibles (A partir de ahora)":
     df_mostrar = df_mostrar[df_mostrar["_valor"] >= valor_ahora]
     df_mostrar = df_mostrar.drop(columns=["_valor"])
 
+# Convertimos el horario a tiempo real, le sumamos 15 min y armamos el texto del bloque
+tiempos = pd.to_datetime(df_mostrar["Horario"], format='%H:%M')
+tiempos_fin = (tiempos + pd.Timedelta(minutes=15)).dt.strftime('%H:%M')
+df_mostrar["Bloque"] = df_mostrar["Horario"] + " - " + tiempos_fin
+
 def color_agente(val):
     color = '#28a745' if val == 'Libre' else '#dc3545'
     return f'color: {color}; font-weight: bold'
 
+# Le decimos a la tabla que muestre la columna "Bloque" en lugar de "Horario"
 st.dataframe(
-    df_mostrar.style.map(color_agente, subset=['Agente']), 
+    df_mostrar[["Bloque", "Agente"]].style.map(color_agente, subset=['Agente']), 
     use_container_width=True, 
     hide_index=True
 )
