@@ -6,20 +6,58 @@ import time
 # Configuración de la pestaña
 st.set_page_config(page_title="Breaks Contact Center", page_icon="☕")
 
-# 1. Conexión con el Sheet (toma los datos de tu JSON y la URL de los Secrets automáticamente)
+# --- 1. SISTEMA DE LOGIN ---
+# Inicializamos el estado de la sesión
+if "logueado" not in st.session_state:
+    st.session_state.logueado = False
+    st.session_state.nombre = ""
+    st.session_state.email = ""
+
+# Si NO está logueado, mostramos la pantalla de login y detenemos la app
+if not st.session_state.logueado:
+    st.title("🔒 Acceso a Breaks")
+    st.write("Por favor, iniciá sesión con tu cuenta de Fu.do")
+    
+    with st.form("login_form"):
+        email = st.text_input("Email").strip().lower()
+        password = st.text_input("Contraseña / PIN", type="password")
+        submit = st.form_submit_button("Ingresar", type="primary")
+
+        if submit:
+            try:
+                # Verificamos si el email existe en los secrets y la clave coincide
+                if email in st.secrets["cuentas"] and st.secrets["cuentas"][email]["password"] == password:
+                    st.session_state.logueado = True
+                    st.session_state.email = email
+                    st.session_state.nombre = st.secrets["cuentas"][email]["nombre"]
+                    st.rerun()
+                else:
+                    st.error("Email o contraseña incorrectos.")
+            except KeyError:
+                st.error("Falta configurar la sección [cuentas] en los Secrets.")
+    
+    st.stop() # Detiene la app acá si no ingresaron
+
+# --- 2. APP PRINCIPAL (Solo se ve si están logueados) ---
+
+# Encabezado con saludo y botón para salir
+col1, col2 = st.columns([0.8, 0.2])
+with col1:
+    st.title(f"☕ Hola, {st.session_state.nombre.split()[0]}!")
+with col2:
+    if st.button("Cerrar Sesión"):
+        st.session_state.logueado = False
+        st.rerun()
+
+st.write("Revisá la tabla y gestioná tu horario de 30 min.")
+
+# Conexión con el Sheet
 conn = st.connection("gsheets", type=GSheetsConnection)
-
-# 2. Leer la pestaña "Hoy"
-# ttl=10 para que refresque cada 10 segundos si alguien entra a mirar
 df = conn.read(worksheet="Hoy", ttl=10)
-
-st.title("☕ Gestión de Breaks")
-st.write("Seleccioná tu horario.")
 
 # --- VISTA DEL TABLERO ---
 st.subheader("📊 Disponibilidad para Hoy")
 
-# Estilo de colores para la tabla
 def color_agente(val):
     color = '#28a745' if val == 'Libre' else '#dc3545'
     return f'color: {color}; font-weight: bold'
@@ -32,40 +70,48 @@ st.dataframe(
 
 st.divider()
 
-# --- FORMULARIO DE RESERVA ---
-st.subheader("🙋‍♂️ Reservar break")
+# --- FORMULARIO DE RESERVA / CANCELACIÓN ---
+st.subheader("🙋‍♂️ Mi Break")
 
-# Filtrar solo horarios que dicen "Libre"
-horarios_libres = df[df["Agente"] == "Libre"]["Horario"].tolist()
+# Buscamos si el usuario actual ya tiene alguna fila con su nombre
+mi_break_actual = df[df["Agente"] == st.session_state.nombre]
 
-if not horarios_libres:
-    st.warning("¡Todos los horarios están ocupados por hoy!")
-else:
-    with st.form("form_reserva"):
-        nombre_agente = st.text_input("Tu Nombre")
-        horario_elegido = st.selectbox("Elegí el horario", horarios_libres)
+if not mi_break_actual.empty:
+    # EL AGENTE YA TIENE UN BREAK AGENDADO
+    horario_actual = mi_break_actual.iloc[0]["Horario"]
+    st.info(f"✅ Ya tenés un break agendado a las **{horario_actual}**.")
+    st.write("¿Te equivocaste o querés cambiar el horario? Primero liberá tu cupo:")
+    
+    if st.button("🗑️ Eliminar / Liberar mi Break", type="primary"):
+        # Pisamos su nombre con "Libre"
+        df.loc[df["Horario"] == horario_actual, "Agente"] = "Libre"
+        conn.update(worksheet="Hoy", data=df)
+        st.cache_data.clear()
         
-        btn_reservar = st.form_submit_button("Confirmar Break", type="primary")
+        st.success("¡Tu break fue eliminado! Ya podés agendar uno nuevo.")
+        time.sleep(1.5)
+        st.rerun()
 
-        if btn_reservar:
-            if nombre_agente.strip() == "":
-                st.error("Por favor, poné tu nombre.")
-            else:
-                # 1. Actualizamos el DataFrame temporalmente
-                df.loc[df["Horario"] == horario_elegido, "Agente"] = nombre_agente
-                
-                # 2. Le ordenamos al bot que escriba el cambio en Google Sheets
+else:
+    # EL AGENTE NO TIENE BREAK, LE MOSTRAMOS PARA AGENDAR
+    horarios_libres = df[df["Agente"] == "Libre"]["Horario"].tolist()
+
+    if not horarios_libres:
+        st.warning("¡Todos los horarios están ocupados por hoy!")
+    else:
+        with st.form("form_reserva"):
+            st.write(f"Agendando a nombre de: **{st.session_state.nombre}**")
+            horario_elegido = st.selectbox("Elegí el horario", horarios_libres)
+            
+            btn_reservar = st.form_submit_button("Confirmar Break", type="primary")
+
+            if btn_reservar:
+                # Escribimos el nombre del usuario de la sesión directamente
+                df.loc[df["Horario"] == horario_elegido, "Agente"] = st.session_state.nombre
                 conn.update(worksheet="Hoy", data=df)
-                
-                # 3. PURGAMOS EL CACHÉ: Para que la app "olvide" la tabla vieja
                 st.cache_data.clear()
                 
-                # 4. Mensaje de éxito y globos
-                st.success(f"¡Listo {nombre_agente}! Reservaste a las {horario_elegido}")
+                st.success(f"¡Listo! Reservaste a las {horario_elegido}")
                 st.balloons()
-                
-                # 5. Esperamos 2 segundos para que se vea el festejo antes de recargar
                 time.sleep(2)
-                
-                # 6. Recargamos la página (ahora traerá la tabla con tu nombre puesto)
                 st.rerun()
