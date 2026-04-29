@@ -1,3 +1,4 @@
+import requests
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
@@ -149,6 +150,16 @@ else:
                 # Escribimos el nombre del usuario de la sesión directamente
                 df_completo.loc[df_completo["Horario"] == horario_elegido, "Agente"] = st.session_state.nombre
                 conn.update(worksheet="Hoy", data=df_completo)
+
+                # --- ENVIAR MENSAJE A SLACK ---
+                try:
+                    url_slack = st.secrets["slack_webhook"]
+                    mensaje = {"text": f"☕ *{st.session_state.nombre}* agendó su break a las *{horario_elegido}* hs."}
+                    requests.post(url_slack, json=mensaje)
+                except Exception as e:
+                   
+                    st.error("El break se guardó, pero falló la notificación a Slack.")
+                
                 st.cache_data.clear()
                 
                 st.success(f"¡Listo! Reservaste a las {horario_elegido}")
