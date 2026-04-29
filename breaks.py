@@ -10,13 +10,11 @@ from datetime import datetime
 st.set_page_config(page_title="Breaks Contact Center", page_icon="☕")
 
 # --- 1. SISTEMA DE LOGIN ---
-# Inicializamos el estado de la sesión
 if "logueado" not in st.session_state:
     st.session_state.logueado = False
     st.session_state.nombre = ""
     st.session_state.email = ""
 
-# Si NO está logueado, mostramos la pantalla de login y detenemos la app
 if not st.session_state.logueado:
     st.title("🔒 Acceso a Breaks")
     st.write("Por favor, iniciá sesión con tu cuenta de Fu.do")
@@ -28,7 +26,6 @@ if not st.session_state.logueado:
 
         if submit:
             try:
-                # Verificamos si el email existe en los secrets y la clave coincide
                 if email in st.secrets["cuentas"] and st.secrets["cuentas"][email]["password"] == password:
                     st.session_state.logueado = True
                     st.session_state.email = email
@@ -39,11 +36,10 @@ if not st.session_state.logueado:
             except KeyError:
                 st.error("Falta configurar la sección [cuentas] en los Secrets.")
     
-    st.stop() # Detiene la app acá si no ingresaron
+    st.stop()
 
-# --- 2. APP PRINCIPAL (Solo se ve si están logueados) ---
+# --- 2. APP PRINCIPAL ---
 
-# Encabezado con saludo y botón para salir
 col1, col2 = st.columns([0.8, 0.2])
 with col1:
     st.title(f"☕ Hola, {st.session_state.nombre.split()[0]}!")
@@ -52,7 +48,7 @@ with col2:
         st.session_state.logueado = False
         st.rerun()
 
-st.write("Revisá la tabla y gestioná tu break de 30 min.")
+st.write("Revisá la tabla y gestioná tu break de 30 min (ocupa 2 bloques de 15 min).")
 
 # Conexión con el Sheet
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -61,13 +57,12 @@ df_completo["Horario"] = pd.to_datetime(df_completo["Horario"]).dt.strftime('%H:
 
 # --- BOTÓN DE ACTUALIZACIÓN MANUAL ---
 if st.button("🔄 Actualizar Tablero"):
-    st.cache_data.clear() # Borra cache
-    st.rerun() # Recarga la app
+    st.cache_data.clear() 
+    st.rerun() 
 
 # --- VISTA DEL TABLERO ---
 st.subheader("📊 Disponibilidad para Hoy")
 
-# Selector de vista
 vista = st.radio(
     "Filtrar horarios:",
     ["Disponibles (A partir de ahora)", "Ver todo el día"],
@@ -76,29 +71,23 @@ vista = st.radio(
 
 df_mostrar = df_completo.copy()
 
-# Lógica del filtro de tiempo
 if vista == "Disponibles (A partir de ahora)":
-    # Obtenemos la hora de Argentina
     tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
     ahora = datetime.now(tz_arg)
     
-    # Convertimos la hora actual a decimal (ej: 14:30 -> 14.5)
     valor_ahora = ahora.hour + (ahora.minute / 60.0)
     
-    # Función para darle valor matemático a los horarios del Excel
     def calcular_valor_horario(hora_str):
         try:
             h, m = map(int, str(hora_str).split(':'))
             return h + (m / 60.0)
         except:
-            return 0 # Por si hay un formato raro
+            return 0 
             
-    # Filtramos la tabla ocultando lo viejo
     df_mostrar["_valor"] = df_mostrar["Horario"].apply(calcular_valor_horario)
     df_mostrar = df_mostrar[df_mostrar["_valor"] >= valor_ahora]
     df_mostrar = df_mostrar.drop(columns=["_valor"])
 
-# Estilo de colores para la tabla
 def color_agente(val):
     color = '#28a745' if val == 'Libre' else '#dc3545'
     return f'color: {color}; font-weight: bold'
@@ -114,18 +103,17 @@ st.divider()
 # --- FORMULARIO DE RESERVA / CANCELACIÓN ---
 st.subheader("🙋‍♂️ Reservar break")
 
-# Buscamos si el usuario actual ya tiene alguna fila con su nombre (en la tabla completa)
 mi_break_actual = df_completo[df_completo["Agente"] == st.session_state.nombre]
 
 if not mi_break_actual.empty:
-    # EL AGENTE YA TIENE UN BREAK AGENDADO
+    # Agarra el primer horario de los dos que tiene bloqueados
     horario_actual = mi_break_actual.iloc[0]["Horario"]
-    st.info(f"✅ Ya tenés un break agendado a las **{horario_actual}**.")
+    st.info(f"✅ Ya tenés un break agendado desde las **{horario_actual}** (30 min).")
     st.write("¿Te equivocaste o querés cambiar el horario? Primero liberá tu cupo:")
     
     if st.button("🗑️ Eliminar / Liberar mi Break", type="primary"):
-        # Pisamos su nombre con "Libre"
-        df_completo.loc[df_completo["Horario"] == horario_actual, "Agente"] = "Libre"
+        # LÓGICA NUEVA: Borra el nombre del agente de TODAS las celdas donde esté
+        df_completo.loc[df_completo["Agente"] == st.session_state.nombre, "Agente"] = "Libre"
         conn.update(worksheet="Hoy", data=df_completo)
         st.cache_data.clear()
         
@@ -134,35 +122,50 @@ if not mi_break_actual.empty:
         st.rerun()
 
 else:
-    # EL AGENTE NO TIENE BREAK, LE MOSTRAMOS PARA AGENDAR (De la tabla filtrada)
-    horarios_libres = df_mostrar[df_mostrar["Agente"] == "Libre"]["Horario"].tolist()
+    # LÓGICA NUEVA: Buscamos 2 bloques de 15 min consecutivos que estén libres
+    horarios_libres = []
+    
+    # Recorremos la tabla filtrada para ver si un horario y el siguiente están libres
+    for i in range(len(df_mostrar) - 1):
+        agente_actual = df_mostrar.iloc[i]["Agente"]
+        agente_siguiente = df_mostrar.iloc[i+1]["Agente"]
+        
+        if agente_actual == "Libre" and agente_siguiente == "Libre":
+            horarios_libres.append(df_mostrar.iloc[i]["Horario"])
 
     if not horarios_libres:
-        st.warning("¡Todos los horarios están ocupados por hoy!")
+        st.warning("¡Ya no hay bloques de 30 min consecutivos libres por hoy!")
     else:
         with st.form("form_reserva"):
             st.write(f"Agendando a nombre de: **{st.session_state.nombre}**")
-            horario_elegido = st.selectbox("Elegí el horario", horarios_libres)
+            st.caption("Al elegir un horario, se bloquearán 2 turnos de 15 min consecutivos.")
+            
+            horario_elegido = st.selectbox("Elegí el horario de inicio", horarios_libres)
             
             btn_reservar = st.form_submit_button("Confirmar Break", type="primary")
 
             if btn_reservar:
-                # Escribimos el nombre del usuario de la sesión directamente
-                df_completo.loc[df_completo["Horario"] == horario_elegido, "Agente"] = st.session_state.nombre
+                # Buscamos en qué número de fila de la tabla completa está el horario que eligió
+                idx_inicio = df_completo[df_completo["Horario"] == horario_elegido].index[0]
+                
+                # Bloqueamos el horario elegido...
+                df_completo.loc[idx_inicio, "Agente"] = st.session_state.nombre
+                # ...Y también bloqueamos el siguiente renglón para completar los 30 min
+                if (idx_inicio + 1) in df_completo.index:
+                    df_completo.loc[idx_inicio + 1, "Agente"] = st.session_state.nombre
+                
                 conn.update(worksheet="Hoy", data=df_completo)
 
-                # --- ENVIAR MENSAJE A SLACK ---
                 try:
                     url_slack = st.secrets["slack_webhook"]
-                    mensaje = {"text": f"☕ *{st.session_state.nombre}* agendó su break a las *{horario_elegido}* hs."}
+                    mensaje = {"text": f"☕ *{st.session_state.nombre}* agendó su break a las *{horario_elegido}* hs (por 30 min)."}
                     requests.post(url_slack, json=mensaje)
                 except Exception as e:
-                   
                     st.error("El break se guardó, pero falló la notificación a Slack.")
                 
                 st.cache_data.clear()
                 
-                st.success(f"¡Listo! Reservaste a las {horario_elegido}")
+                st.success(f"¡Listo! Reservaste 30 minutos desde las {horario_elegido}")
                 st.balloons()
                 time.sleep(2)
                 st.rerun()
