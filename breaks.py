@@ -433,9 +433,10 @@ with col_der:
                         try:
                             url_slack = st.secrets["slack_webhook"]
                             mensaje = {"text": f"☕ *{st.session_state.nombre}* agendó su break a las *{horario_elegido}* hs."}
-                            requests.post(url_slack, json=mensaje)
-                        except Exception:
-                            st.warning("⚠️ El break se guardó, pero falló la notificación a Slack.")
+                            response = requests.post(url_slack, json=mensaje)
+                            st.write(f"Slack status: {response.status_code} — {response.text}")
+                        except Exception as e:
+                            st.error(f"Error Slack: {e}")
 
                         st.cache_data.clear()
                         st.success(f"¡Listo! Reservaste a las {horario_elegido} 🎉")
