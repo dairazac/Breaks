@@ -73,10 +73,10 @@ with col_logo:
     st.image("logo.png", width=180)
 
 with col_saludo:
-    # Usamos HTML para bajar un poco el texto y forzar el emoji a color
+    # Ajustamos el margin-top para que "caiga" a la altura del logo
     st.markdown(
         f"""
-        <div style='margin-top: 15px;'>
+        <div style='margin-top: 25px;'>
             <h2 style='margin: 0;'>☕ <span style='vertical-align: middle;'>Hola, {st.session_state.nombre.split()[0]}!</span></h2>
         </div>
         """, 
@@ -88,8 +88,6 @@ with col_salir:
         cookie_manager.delete('fudo_user_email')
         st.session_state.logueado = False
         st.rerun()
-
-st.divider()
 
 # --- DIVISIÓN EN DOS COLUMNAS PRINCIPALES ---
 col_izq, col_der = st.columns([0.6, 0.4], gap="large")
@@ -139,13 +137,12 @@ with col_izq:
     )
 
 with col_der:
+    # Título con café a color
+    st.markdown("### ☕ Mi Break", unsafe_allow_html=True)
     
-    with col_der:
-    # --- FORMULARIO DE RESERVA / CANCELACIÓN ---
-    st.subheader("🙋‍♂️ Mi Break")
-    
-    # Agregamos un pequeño espacio vacío para empujar el cuadro verde hacia abajo
-    # y que se alinee con el comienzo de los datos de la tabla
+    # Estos espacios vacíos empujan el cuadro hacia abajo para que 
+    # la franja verde se alinee con los datos de la tabla (no con el título)
+    st.write("") 
     st.write("") 
     st.write("") 
 
