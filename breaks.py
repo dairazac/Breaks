@@ -176,13 +176,18 @@ if "logueado" not in st.session_state:
     st.session_state.logueado = False
     st.session_state.nombre = ""
     st.session_state.email = ""
+    st.session_state.ignorar_cookie = False # Creamos nuestra variable escudo
 
 if not st.session_state.logueado:
-    saved_email = cookie_manager.get('fudo_user_email')
-    if saved_email and saved_email in st.secrets["cuentas"]:
-        st.session_state.logueado = True
-        st.session_state.email = saved_email
-        st.session_state.nombre = st.secrets["cuentas"][saved_email]["nombre"]
+    # Si acabamos de cerrar sesión, ignoramos la cookie por este turno
+    if st.session_state.get("ignorar_cookie", False):
+        st.session_state.ignorar_cookie = False # Apagamos el escudo
+    else:
+        saved_email = cookie_manager.get('fudo_user_email')
+        if saved_email and saved_email in st.secrets["cuentas"]:
+            st.session_state.logueado = True
+            st.session_state.email = saved_email
+            st.session_state.nombre = st.secrets["cuentas"][saved_email]["nombre"]
 
 
 # ─────────────────────────────────────────────
@@ -265,6 +270,7 @@ with col_salir:
     if st.button("Cerrar Sesión", use_container_width=True, type="secondary"):
         cookie_manager.delete('fudo_user_email')
         st.session_state.logueado = False
+        st.session_state.ignorar_cookie = True # Prendemos el escudo antes de reiniciar
         st.rerun()
 
 st.divider()
