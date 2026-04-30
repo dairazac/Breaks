@@ -67,13 +67,21 @@ df_completo = conn.read(worksheet="Hoy", ttl=10)
 df_completo["Horario"] = pd.to_datetime(df_completo["Horario"]).dt.strftime('%H:%M')
 
 # --- ENCABEZADO SUPERIOR ALINEADO ---
-col_logo, col_saludo, col_salir = st.columns([0.15, 0.7, 0.15], vertical_alignment="center")
+col_logo, col_saludo, col_salir = st.columns([0.2, 0.6, 0.2], vertical_alignment="center")
 
 with col_logo:
-    st.image("logo.png", width=150)
+    st.image("logo.png", width=180)
 
 with col_saludo:
-    st.header(f" Hola, {st.session_state.nombre.split()[0]}!")
+    # Usamos HTML para bajar un poco el texto y forzar el emoji a color
+    st.markdown(
+        f"""
+        <div style='margin-top: 15px;'>
+            <h2 style='margin: 0;'>☕ <span style='vertical-align: middle;'>Hola, {st.session_state.nombre.split()[0]}!</span></h2>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
 
 with col_salir:
     if st.button("Cerrar Sesión", use_container_width=True):
@@ -132,11 +140,17 @@ with col_izq:
 
 with col_der:
     
+    with col_der:
     # --- FORMULARIO DE RESERVA / CANCELACIÓN ---
-    st.subheader("☕ Mi Break")
+    st.subheader("🙋‍♂️ Mi Break")
+    
+    # Agregamos un pequeño espacio vacío para empujar el cuadro verde hacia abajo
+    # y que se alinee con el comienzo de los datos de la tabla
+    st.write("") 
+    st.write("") 
 
     mi_break_actual = df_completo[df_completo["Agente"] == st.session_state.nombre]
-
+    
     if not mi_break_actual.empty:
         horario_actual = mi_break_actual.iloc[0]["Horario"]
         st.success(f"✅ Ya tenés un break agendado desde las **{horario_actual}** (30 min).")
