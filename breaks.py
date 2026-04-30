@@ -70,7 +70,7 @@ df_completo["Horario"] = pd.to_datetime(df_completo["Horario"]).dt.strftime('%H:
 col_logo, col_saludo, col_salir = st.columns([0.15, 0.7, 0.15], vertical_alignment="center")
 
 with col_logo:
-    st.image("logo.png", width=120)
+    st.image("logo.png", width=200)
 
 with col_saludo:
     st.markdown(
