@@ -73,8 +73,14 @@ with col_logo:
     st.image("logo.png", width=120)
 
 with col_saludo:
-    st.header(f"☕ Hola, {st.session_state.nombre.split()[0]}!")
-    st.header(f" Hola, {st.session_state.nombre.split()[0]}!")
+    st.markdown(
+        f"""
+        <div style='margin-top: 25px;'>
+            <h2 style='margin: 0;'>☕ <span style='vertical-align: middle;'>Hola, {st.session_state.nombre.split()[0]}!</span></h2>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
 
 with col_salir:
     if st.button("Cerrar Sesión", use_container_width=True):
@@ -132,10 +138,13 @@ with col_izq:
     )
 
 with col_der:
-
-    # --- FORMULARIO DE RESERVA / CANCELACIÓN ---
-    st.subheader("🙋‍♂️ Mi Break")
-    st.subheader("☕ Mi Break")
+    # Título único con emoji a color
+    st.markdown("### ☕ Mi Break", unsafe_allow_html=True)
+    
+    # Estos espacios empujan el cuadro verde para que se alinee con los datos de la tabla
+    st.write("") 
+    st.write("") 
+    st.write("")
 
     mi_break_actual = df_completo[df_completo["Agente"] == st.session_state.nombre]
 
