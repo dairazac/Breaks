@@ -189,5 +189,5 @@ with col_der:
                     st.cache_data.clear()
                     st.success(f"¡Listo! Reservaste a las {horario_elegido}")
                     st.balloons()
-                    time.sleep(2)
+                    time.sleep(5)
                     st.rerun()
