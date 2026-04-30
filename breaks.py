@@ -67,16 +67,21 @@ df_completo = conn.read(worksheet="Hoy", ttl=10)
 df_completo["Horario"] = pd.to_datetime(df_completo["Horario"]).dt.strftime('%H:%M')
 
 # --- ENCABEZADO SUPERIOR ALINEADO ---
-col_logo, col_saludo, col_salir = st.columns([0.15, 0.7, 0.15], vertical_alignment="center")
+col_logo, col_saludo, col_salir = st.columns([0.2, 0.6, 0.2], vertical_alignment="center")
 
 with col_logo:
-    st.image("logo.png", width=200)
+    st.image("logo.png", width=180)
 
 with col_saludo:
+    # El código &#x2615;&#xFE0F; es el café a color forzado
+    # margin-top: 12px es lo que "empuja" el texto para alinearlo al logo
     st.markdown(
         f"""
-        <div style='margin-top: 25px;'>
-            <h2 style='margin: 0;'>☕ <span style='vertical-align: middle;'>Hola, {st.session_state.nombre.split()[0]}!</span></h2>
+        <div style='margin-top: 12px;'>
+            <h2 style='margin: 0; display: flex; align-items: center;'>
+                <span style='margin-right: 15px;'>☕️</span> 
+                <span>Hola, {st.session_state.nombre.split()[0]}!</span>
+            </h2>
         </div>
         """, 
         unsafe_allow_html=True
@@ -87,8 +92,6 @@ with col_salir:
         cookie_manager.delete('fudo_user_email')
         st.session_state.logueado = False
         st.rerun()
-
-st.divider()
 
 # --- DIVISIÓN EN DOS COLUMNAS PRINCIPALES ---
 col_izq, col_der = st.columns([0.6, 0.4], gap="large")
