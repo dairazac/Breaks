@@ -1,6 +1,17 @@
+# .streamlit/config.toml
 [theme]
-base="dark"
-primaryColor="#FF5C00" 
-backgroundColor="#0B0E14" 
-secondaryBackgroundColor="#151921" 
-textColor="#FFFFFF"
+base = "dark"
+
+# Fondo principal: azul-carbón, NO negro puro (evita fatiga visual)
+backgroundColor         = "#0F1117"
+
+# Fondo de sidebars, cards, inputs: un paso más claro
+secondaryBackgroundColor = "#1A1F2E"
+
+# Texto principal: blanco suave, no puro
+textColor               = "#E8EAF0"
+
+# Acento: azul-índigo vibrante (moderno, corporativo)
+primaryColor            = "#4F7EFF"
+
+font = "sans serif"
