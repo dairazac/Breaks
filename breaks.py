@@ -7,7 +7,6 @@ import pytz
 from datetime import datetime
 import extra_streamlit_components as stx
 
-# Configuración de la pestaña (Layout Wide activado)
 st.set_page_config(page_title="Breaks Contact Center", page_icon="☕", layout="wide")
 
 # --- 🍪 GESTIÓN DE COOKIES ---
@@ -32,7 +31,7 @@ if not st.session_state.logueado:
 
 # --- 1. PANTALLA DE LOGIN ---
 if not st.session_state.logueado:
-    # st.image("logo.png", width=150) # Descomentá esta línea y subí un logo.png a tu GitHub
+    st.image("logo.png", width=150) # Descomentá esta línea y subí un logo.png a tu GitHub
     st.title("🔒 Acceso a Breaks")
     st.write("Iniciá sesión. Se mantendrá abierta en este navegador.")
     
