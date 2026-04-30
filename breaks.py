@@ -141,13 +141,11 @@ with col_izq:
     )
 
 with col_der:
-    # Título único con emoji a color
-    st.markdown("### ☕ Mi Break", unsafe_allow_html=True)
+    st.markdown("### ☕️ Mi Break", unsafe_allow_html=True)
     
-    # Estos espacios empujan el cuadro verde para que se alinee con los datos de la tabla
-    st.write("") 
-    st.write("") 
-    st.write("")
+    # Este bloque crea un espacio vacío exacto para compensar el radio button de la izquierda
+    # Si ves que le falta un pelín, subí el 65px a 70px o bajalo a 60px.
+    st.markdown("<div style='height: 65px;'></div>", unsafe_allow_html=True)
 
     mi_break_actual = df_completo[df_completo["Agente"] == st.session_state.nombre]
 
