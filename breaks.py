@@ -73,7 +73,7 @@ with col_logo:
     st.image("logo.png", width=120)
 
 with col_saludo:
-    st.header(f"☕ Hola, {st.session_state.nombre.split()[0]}!")
+    st.header(f" Hola, {st.session_state.nombre.split()[0]}!")
 
 with col_salir:
     if st.button("Cerrar Sesión", use_container_width=True):
@@ -133,7 +133,7 @@ with col_izq:
 with col_der:
     
     # --- FORMULARIO DE RESERVA / CANCELACIÓN ---
-    st.subheader("🙋‍♂️ Mi Break")
+    st.subheader("☕ Mi Break")
 
     mi_break_actual = df_completo[df_completo["Agente"] == st.session_state.nombre]
 
