@@ -31,7 +31,7 @@ if not st.session_state.logueado:
 
 # --- 1. PANTALLA DE LOGIN ---
 if not st.session_state.logueado:
-    st.image("logo.png", width=150) # Descomentá esta línea y subí un logo.png a tu GitHub
+    st.image("logo.png", width=150)
     st.title("🔒 Acceso a Breaks")
     st.write("Iniciá sesión. Se mantendrá abierta en este navegador.")
     
@@ -69,7 +69,7 @@ df_completo["Horario"] = pd.to_datetime(df_completo["Horario"]).dt.strftime('%H:
 # --- ENCABEZADO SUPERIOR CON ESPACIO PARA LOGO ---
 col_logo, col_saludo, col_salir = st.columns([0.15, 0.7, 0.15])
 with col_logo:
-    pass # ACÁ VA EL LOGO: st.image("logo.png", width=120)
+    st.image("logo.png", width=120)
 with col_saludo:
     st.title(f"☕ Hola, {st.session_state.nombre.split()[0]}!")
 with col_salir:
