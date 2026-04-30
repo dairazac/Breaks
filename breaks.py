@@ -66,15 +66,17 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 df_completo = conn.read(worksheet="Hoy", ttl=10)
 df_completo["Horario"] = pd.to_datetime(df_completo["Horario"]).dt.strftime('%H:%M')
 
-# --- ENCABEZADO SUPERIOR CON ESPACIO PARA LOGO ---
-col_logo, col_saludo, col_salir = st.columns([0.15, 0.7, 0.15])
+# --- ENCABEZADO SUPERIOR ALINEADO ---
+col_logo, col_saludo, col_salir = st.columns([0.15, 0.7, 0.15], vertical_alignment="center")
+
 with col_logo:
     st.image("logo.png", width=120)
+
 with col_saludo:
-    st.title(f"☕ Hola, {st.session_state.nombre.split()[0]}!")
+    st.header(f"☕ Hola, {st.session_state.nombre.split()[0]}!")
+
 with col_salir:
-    st.write("") # Espaciador para alinear el botón
-    if st.button("Cerrar Sesión"):
+    if st.button("Cerrar Sesión", use_container_width=True):
         cookie_manager.delete('fudo_user_email')
         st.session_state.logueado = False
         st.rerun()
