@@ -71,9 +71,9 @@ col_logo, col_saludo, col_salir = st.columns([0.15, 0.7, 0.15], vertical_alignme
 
 with col_logo:
     st.image("logo.png", width=120)
-    st.image("logo.png", width=150)
 
 with col_saludo:
+    st.header(f"☕ Hola, {st.session_state.nombre.split()[0]}!")
     st.header(f" Hola, {st.session_state.nombre.split()[0]}!")
 
 with col_salir:
@@ -134,6 +134,7 @@ with col_izq:
 with col_der:
 
     # --- FORMULARIO DE RESERVA / CANCELACIÓN ---
+    st.subheader("🙋‍♂️ Mi Break")
     st.subheader("☕ Mi Break")
 
     mi_break_actual = df_completo[df_completo["Agente"] == st.session_state.nombre]
