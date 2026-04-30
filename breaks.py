@@ -128,14 +128,6 @@ with col_izq:
     )
 
 with col_der:
-    st.subheader("⚙️ Panel de Control")
-    
-    # Botón sutil, sin fondo sólido
-    if st.button("🔄 Actualizar Tabla manualmente", use_container_width=True):
-        st.cache_data.clear() 
-        st.rerun() 
-        
-    st.write("") # Espaciador
     
     # --- FORMULARIO DE RESERVA / CANCELACIÓN ---
     st.subheader("🙋‍♂️ Mi Break")
