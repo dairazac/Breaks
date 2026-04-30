@@ -118,10 +118,12 @@ with col_izq:
 
     def color_fila(row):
         if row['Agente'] == 'Libre':
-            return ['background-color: #0d2b1b; color: #a3e635; font-weight: bold'] * len(row)
+            # Fondo verde musgo muy sutil, texto menta pastel
+            return ['background-color: #233528; color: #A8E6CF'] * len(row)
         else:
-            return ['background-color: #3b0918; color: #f87171; font-weight: bold'] * len(row)
-
+            # Fondo bordó muy apagado, texto salmón pastel
+            return ['background-color: #3A2626; color: #FF8B94'] * len(row)
+            
     st.dataframe(
         df_mostrar[["Bloque", "Agente"]].style.apply(color_fila, axis=1), 
         use_container_width=True, 
