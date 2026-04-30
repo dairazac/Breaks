@@ -34,11 +34,11 @@ if not st.session_state.logueado:
     st.image("logo.png", width=150)
     st.title("🔒 Acceso a Breaks")
     st.write("Iniciá sesión. Se mantendrá abierta en este navegador.")
-    
+
     with st.form("login_form"):
         email = st.text_input("Email corporativo").strip().lower()
         password = st.text_input("Contraseña / PIN", type="password")
-        
+
         # Botón minimalista (sin type="primary")
         submit = st.form_submit_button("Ingresar")
 
@@ -48,7 +48,7 @@ if not st.session_state.logueado:
                     st.session_state.logueado = True
                     st.session_state.email = email
                     st.session_state.nombre = st.secrets["cuentas"][email]["nombre"]
-                    
+
                     cookie_manager.set('fudo_user_email', email, expires_at=datetime.now() + pd.Timedelta(days=60))
                     st.success("¡Sesión iniciada!")
                     time.sleep(1)
@@ -67,27 +67,22 @@ df_completo = conn.read(worksheet="Hoy", ttl=10)
 df_completo["Horario"] = pd.to_datetime(df_completo["Horario"]).dt.strftime('%H:%M')
 
 # --- ENCABEZADO SUPERIOR ALINEADO ---
-col_logo, col_saludo, col_salir = st.columns([0.2, 0.6, 0.2], vertical_alignment="center")
+col_logo, col_saludo, col_salir = st.columns([0.15, 0.7, 0.15], vertical_alignment="center")
 
 with col_logo:
-    st.image("logo.png", width=180)
+    st.image("logo.png", width=120)
+    st.image("logo.png", width=150)
 
 with col_saludo:
-    # Ajustamos el margin-top para que "caiga" a la altura del logo
-    st.markdown(
-        f"""
-        <div style='margin-top: 25px;'>
-            <h2 style='margin: 0;'>☕ <span style='vertical-align: middle;'>Hola, {st.session_state.nombre.split()[0]}!</span></h2>
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
+    st.header(f" Hola, {st.session_state.nombre.split()[0]}!")
 
 with col_salir:
     if st.button("Cerrar Sesión", use_container_width=True):
         cookie_manager.delete('fudo_user_email')
         st.session_state.logueado = False
         st.rerun()
+
+st.divider()
 
 # --- DIVISIÓN EN DOS COLUMNAS PRINCIPALES ---
 col_izq, col_der = st.columns([0.6, 0.4], gap="large")
@@ -107,13 +102,13 @@ with col_izq:
         tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
         ahora = datetime.now(tz_arg)
         valor_ahora = ahora.hour + (ahora.minute / 60.0)
-        
+
         def calcular_valor_horario(hora_str):
             try:
                 h, m = map(int, str(hora_str).split(':'))
                 return h + (m / 60.0)
             except: return 0 
-                
+
         df_mostrar["_valor"] = df_mostrar["Horario"].apply(calcular_valor_horario)
         df_mostrar = df_mostrar[df_mostrar["_valor"] >= valor_ahora]
         df_mostrar = df_mostrar.drop(columns=["_valor"])
@@ -129,7 +124,7 @@ with col_izq:
         else:
             # Fondo rojo traslúcido, texto rojo vibrante
             return ['background-color: rgba(220, 53, 69, 0.2); color: #FF4D4D; font-weight: bold'] * len(row)
-            
+
     st.dataframe(
         df_mostrar[["Bloque", "Agente"]].style.apply(color_fila, axis=1), 
         use_container_width=True, 
@@ -137,21 +132,16 @@ with col_izq:
     )
 
 with col_der:
-    # Título con café a color
-    st.markdown("### ☕ Mi Break", unsafe_allow_html=True)
-    
-    # Estos espacios vacíos empujan el cuadro hacia abajo para que 
-    # la franja verde se alinee con los datos de la tabla (no con el título)
-    st.write("") 
-    st.write("") 
-    st.write("") 
+
+    # --- FORMULARIO DE RESERVA / CANCELACIÓN ---
+    st.subheader("☕ Mi Break")
 
     mi_break_actual = df_completo[df_completo["Agente"] == st.session_state.nombre]
-    
+
     if not mi_break_actual.empty:
         horario_actual = mi_break_actual.iloc[0]["Horario"]
         st.success(f"✅ Ya tenés un break agendado desde las **{horario_actual}** (30 min).")
-        
+
         if st.button("🗑️ Eliminar / Liberar mi Break", use_container_width=True):
             df_completo.loc[df_completo["Agente"] == st.session_state.nombre, "Agente"] = "Libre"
             conn.update(worksheet="Hoy", data=df_completo)
@@ -172,9 +162,9 @@ with col_der:
             with st.form("form_reserva"):
                 st.write(f"Agendando para: **{st.session_state.nombre}**")
                 horario_elegido = st.selectbox("Elegí el horario de inicio", horarios_libres)
-                
+
                 st.caption("🔒 Se bloquearán 2 turnos de 15 min consecutivos.")
-                
+
                 btn_reservar = st.form_submit_button("Confirmar Break", use_container_width=True)
 
                 if btn_reservar:
@@ -182,7 +172,7 @@ with col_der:
                     df_completo.loc[idx_inicio, "Agente"] = st.session_state.nombre
                     if (idx_inicio + 1) in df_completo.index:
                         df_completo.loc[idx_inicio + 1, "Agente"] = st.session_state.nombre
-                    
+
                     conn.update(worksheet="Hoy", data=df_completo)
 
                     try:
@@ -191,7 +181,7 @@ with col_der:
                         requests.post(url_slack, json=mensaje)
                     except Exception as e: 
                         st.warning("⚠️ El break se guardó, pero falló la notificación a Slack.")
-                    
+
                     st.cache_data.clear()
                     st.success(f"¡Listo! Reservaste a las {horario_elegido}")
                     st.balloons()
