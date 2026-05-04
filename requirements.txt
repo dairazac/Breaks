@@ -3,3 +3,4 @@ pandas
 pytz
 requests
 extra-streamlit-components
+streamlit-autorefresh
