@@ -245,6 +245,28 @@ df_completo["Horario"] = pd.to_datetime(df_completo["Horario"]).dt.strftime('%H:
 
 
 # ─────────────────────────────────────────────
+#  CURVA DE DEMANDA (opcional) — sugiere los mejores horarios
+#  Lee la hoja "Demanda" (Horario | Nivel: Bajo/Medio/Alto).
+#  Si la hoja no existe o falla la lectura, la app sigue
+#  funcionando normal, solo sin las sugerencias.
+# ─────────────────────────────────────────────
+@st.cache_data(ttl=300)
+def cargar_mapa_demanda():
+    try:
+        df_dem = conn.read(worksheet="Demanda", ttl=300)
+        df_dem["Horario"] = pd.to_datetime(df_dem["Horario"]).dt.strftime('%H:%M')
+        return dict(zip(df_dem["Horario"], df_dem["Nivel"]))
+    except Exception:
+        return {}
+
+mapa_demanda = cargar_mapa_demanda()
+ORDEN_NIVEL = {"Bajo": 0, "Medio": 1, "Alto": 2}
+
+def nivel_de(horario):
+    return mapa_demanda.get(horario, "Medio")
+
+
+# ─────────────────────────────────────────────
 #  ENCABEZADO
 # ─────────────────────────────────────────────
 col_logo, col_saludo, col_salir = st.columns([0.15, 0.65, 0.20], vertical_alignment="center")
@@ -319,6 +341,19 @@ with col_izq:
         tiempos_fin = (tiempos + pd.Timedelta(minutes=15)).dt.strftime('%H:%M')
         df_mostrar["Bloque"] = df_mostrar["Horario"] + " → " + tiempos_fin
 
+        # Sugerencia según curva de demanda (solo para bloques libres)
+        def _etiqueta_sugerencia(row):
+            if row["Agente"] != "Libre" or not mapa_demanda:
+                return ""
+            nivel = nivel_de(row["Horario"])
+            if nivel == "Bajo":
+                return "🟢 Recomendado"
+            elif nivel == "Alto":
+                return "🔴 Alta demanda"
+            return ""
+
+        df_mostrar["Sugerencia"] = df_mostrar.apply(_etiqueta_sugerencia, axis=1)
+
         # Métricas rápidas
         total = len(df_mostrar)
         libres = len(df_mostrar[df_mostrar["Agente"] == "Libre"])
@@ -346,13 +381,17 @@ with col_izq:
                     'font-weight: 500'
                 ] * len(row)
 
+        columnas_tabla = ["Bloque", "Agente", "Sugerencia"] if mapa_demanda else ["Bloque", "Agente"]
         st.dataframe(
-            df_mostrar[["Bloque", "Agente"]].style.apply(color_fila, axis=1),
+            df_mostrar[columnas_tabla].style.apply(color_fila, axis=1),
             use_container_width=True,
             hide_index=True
         )
 
-        st.caption("↻ Se actualiza automáticamente cada 10 segundos")
+        if mapa_demanda:
+            st.caption("↻ Se actualiza automáticamente cada 10 segundos · 🟢 Recomendado = baja demanda esperada · 🔴 Alta demanda = mejor evitarlo si se puede")
+        else:
+            st.caption("↻ Se actualiza automáticamente cada 10 segundos")
 
 
 # ══════════════════════════════════════════════
@@ -403,6 +442,21 @@ with col_der:
                 if df_mostrar.iloc[i]["Agente"] == "Libre" and df_mostrar.iloc[i + 1]["Agente"] == "Libre":
                     horarios_libres.append(df_mostrar.iloc[i]["Horario"])
 
+            # Ordenamos mostrando primero los bloques de menor demanda (sugeridos),
+            # sin restringir: el agente puede elegir cualquier horario libre.
+            if mapa_demanda:
+                horarios_libres.sort(key=lambda h: ORDEN_NIVEL.get(nivel_de(h), 1))
+
+            def _etiqueta_opcion(h):
+                if not mapa_demanda:
+                    return h
+                nivel = nivel_de(h)
+                if nivel == "Bajo":
+                    return f"🟢 {h} · Recomendado"
+                elif nivel == "Alto":
+                    return f"🔴 {h} · Alta demanda"
+                return h
+
             if not horarios_libres:
                 st.warning("¡No hay bloques de 30 min libres disponibles!")
 
@@ -425,7 +479,11 @@ with col_der:
                 """, unsafe_allow_html=True)
 
                 with st.form("form_reserva"):
-                    horario_elegido = st.selectbox("⏰ Horario de inicio", horarios_libres)
+                    horario_elegido = st.selectbox(
+                        "⏰ Horario de inicio",
+                        horarios_libres,
+                        format_func=_etiqueta_opcion
+                    )
                     st.caption("🔒 Se bloquearán 2 turnos de 15 min consecutivos.")
                     st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
                     btn_reservar = st.form_submit_button("☕ Confirmar Break", use_container_width=True)
