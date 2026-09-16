@@ -215,7 +215,7 @@ if not st.session_state.logueado:
         """, unsafe_allow_html=True)
 
         with st.form("login_form"):
-            email = st.text_input("Email corporativo", placeholder="nombre@empresa.com").strip().lower()
+            email = st.text_input("Email corporativo", placeholder="Correo electrónico").strip().lower()
             password = st.text_input("Contraseña / PIN", type="password", placeholder="••••••")
             submit = st.form_submit_button("Ingresar →", use_container_width=True)
 
