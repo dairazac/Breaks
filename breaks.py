@@ -533,7 +533,16 @@ def evaluar(horario):
     return 1, ""
 
 
-HAY_SUGERENCIAS = bool(mapa_demanda) or bool(franja)
+# ─────────────────────────────────────────────
+#  INTERRUPTOR DE SUGERENCIAS
+#  Para apagarlas, agregar en los Secrets (arriba de todo, fuera de
+#  [cuentas]) la línea:   sugerencias = false
+#  Apagadas, la app se ve como la versión original: sin columna
+#  "Sugerencia", horarios en orden y sin etiquetas. Para prenderlas,
+#  borrar la línea o poner  sugerencias = true
+# ─────────────────────────────────────────────
+SUGERENCIAS_ACTIVADAS = str(st.secrets.get("sugerencias", True)).strip().lower() not in ("false", "0", "no", "off")
+HAY_SUGERENCIAS = SUGERENCIAS_ACTIVADAS and (bool(mapa_demanda) or bool(franja))
 
 
 # ─────────────────────────────────────────────
@@ -641,10 +650,10 @@ with col_izq:
         )
 
         leyenda = ["↻ Se actualiza automáticamente cada 10 segundos"]
-        if mapa_demanda:
+        if HAY_SUGERENCIAS and mapa_demanda:
             leyenda.append("🟢 Recomendado = baja demanda esperada" + (" dentro de tu turno" if franja else ""))
             leyenda.append("🔴 Alta demanda = mejor evitarlo si se puede")
-        if franja:
+        if HAY_SUGERENCIAS and franja:
             leyenda.append("⚠️ = el break toca tu última hora · ⛔ = fuera de tu turno (no se bloquea, es solo una sugerencia)")
         st.caption(" · ".join(leyenda))
 
@@ -657,9 +666,10 @@ with col_der:
         st.subheader("🙋‍♂️ Mi Break")
 
         texto_turno = (f" · Tu turno: {texto_hora(franja[0])} a {texto_hora(franja[1])}"
-                       if franja else "")
+                       if franja and SUGERENCIAS_ACTIVADAS else "")
         if cupo == 1:
-            st.caption(f"1 break de 30 minutos{texto_turno}")
+            if SUGERENCIAS_ACTIVADAS:
+                st.caption(f"1 break de 30 minutos{texto_turno}")
         else:
             st.caption(f"{cupo} breaks de 30 minutos — podés tomarlos "
                        f"en horarios distintos o seguidos{texto_turno}")
