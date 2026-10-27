@@ -446,7 +446,7 @@ def reservar(quien, col, horario, cupo_max):
         return False, "Ese horario ya no está disponible. Elegí otro."
     i = pos[0]
     if df.loc[i, col] != LIBRE or df.loc[i + 1, col] != LIBRE:
-        return False, "Alguien de tu grupo acaba de tomar ese horario. Elegí otro."
+        return False, "Alguien acaba de tomar ese horario. Elegí otro."
     df.loc[[i, i + 1], col] = quien
     conn.update(worksheet="Hoy", data=df)
     st.cache_data.clear()
@@ -582,8 +582,6 @@ col_izq, col_der = st.columns([0.58, 0.42], gap="large")
 with col_izq:
     with st.container(border=True):
         st.subheader("📊 Disponibilidad para Hoy")
-        st.caption(f"Estás en el grupo **{col_mia}** · de cada grupo sale una persona a la vez, "
-                   f"y puede coincidir con alguien de otro grupo.")
 
         vista = st.radio(
             "Filtrar horarios:",
@@ -592,7 +590,6 @@ with col_izq:
         )
 
         df_mostrar = df_completo.copy()
-        columnas_grupo = grupos_en(df_completo)
 
         if vista == "Disponibles (A partir de ahora)":
             tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
@@ -603,6 +600,9 @@ with col_izq:
         tiempos = pd.to_datetime(df_mostrar["Horario"], format='%H:%M')
         tiempos_fin = (tiempos + pd.Timedelta(minutes=15)).dt.strftime('%H:%M')
         df_mostrar["Bloque"] = df_mostrar["Horario"] + " → " + tiempos_fin
+        # El agente ve solo la disponibilidad de su grupo, en una columna
+        # "Agente" como antes: los grupos no se muestran en la app.
+        df_mostrar["Agente"] = df_mostrar[col_mia]
 
         # Sugerencia personalizada (solo donde tu grupo tiene lugar)
         def _etiqueta_sugerencia(row):
@@ -619,26 +619,21 @@ with col_izq:
 
         m1, m2, m3 = st.columns(3)
         m1.metric("Total bloques", total)
-        m2.metric(f"🟢 Libres · {col_mia}", libres)
-        m3.metric(f"🔴 En break · {col_mia}", ocupados)
+        m2.metric("🟢 Libres", libres)
+        m3.metric("🔴 Ocupados", ocupados)
 
         st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
 
-        # Colores: cada columna de grupo según su propio estado;
-        # Bloque y Sugerencia según el estado de tu grupo.
+        # Colores — elegantes, no chillones
         ESTILO_LIBRE = ('background-color: rgba(34, 197, 94, 0.07); '
                         'color: #4ADE80; font-weight: 500')
         ESTILO_OCUPADO = ('background-color: rgba(239, 68, 68, 0.07); '
                           'color: #F87171; font-weight: 500')
 
         def color_fila(row):
-            estilos = []
-            for c in row.index:
-                ref = row[c] if c in columnas_grupo else row[col_mia]
-                estilos.append(ESTILO_LIBRE if ref == LIBRE else ESTILO_OCUPADO)
-            return estilos
+            return [ESTILO_LIBRE if row["Agente"] == LIBRE else ESTILO_OCUPADO] * len(row)
 
-        columnas_tabla = ["Bloque"] + columnas_grupo + (["Sugerencia"] if HAY_SUGERENCIAS else [])
+        columnas_tabla = ["Bloque", "Agente"] + (["Sugerencia"] if HAY_SUGERENCIAS else [])
         st.dataframe(
             df_mostrar[columnas_tabla].style.apply(color_fila, axis=1),
             use_container_width=True,
@@ -664,9 +659,9 @@ with col_der:
         texto_turno = (f" · Tu turno: {texto_hora(franja[0])} a {texto_hora(franja[1])}"
                        if franja else "")
         if cupo == 1:
-            st.caption(f"Grupo {col_mia} · 1 break de 30 minutos{texto_turno}")
+            st.caption(f"1 break de 30 minutos{texto_turno}")
         else:
-            st.caption(f"Grupo {col_mia} · {cupo} breaks de 30 minutos — podés tomarlos "
+            st.caption(f"{cupo} breaks de 30 minutos — podés tomarlos "
                        f"en horarios distintos o seguidos{texto_turno}")
 
         # Reserva pedida con "Confirmar Break": se toma el horario exacto que
@@ -743,7 +738,7 @@ with col_der:
                 return f"{emoji} {h} · {texto}"
 
             if not horarios_libres:
-                st.warning(f"¡No hay bloques de 30 min libres en el grupo {col_mia}!")
+                st.warning("¡No hay bloques de 30 min libres disponibles!")
 
             else:
                 # Info del agente
