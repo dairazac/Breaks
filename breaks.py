@@ -256,7 +256,10 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 #    Entrada / Salida: su turno (ej. 18:00 y 01:00). Si está cargado,
 #             la app le marca qué horarios le convienen. No bloquea nada.
 #  Si la hoja no existe o el agente no está, se usan los datos de los
-#  Secrets (grupo / breaks) o los valores por defecto. Cambios: hasta 5 min.
+#  Secrets (grupo / breaks) o los valores por defecto. Cambios: hasta 1 min.
+#  Ojo: si a alguien se le cambia el grupo con breaks ya agendados ese día,
+#  esos breaks quedan en la columna del grupo viejo. La app se los sigue
+#  mostrando (tabla y "Mi Break"), pero conviene que los libere y reagende.
 # ─────────────────────────────────────────────
 GRUPO_POR_DEFECTO = "Rotativo"
 LIBRE = "Libre"
@@ -286,12 +289,13 @@ def _a_minutos_hora(v):
         return None
 
 
-@st.cache_data(ttl=300)
-def cargar_agentes():
+@st.cache_data(ttl=60)
+def _leer_agentes():
+    """None si la lectura falló (se reintenta al minuto)."""
     try:
-        df = conn.read(worksheet="Agentes", ttl=300)
+        df = conn.read(worksheet="Agentes", ttl=60)
     except Exception:
-        return {}
+        return None
     df.columns = [str(c).strip().lower() for c in df.columns]
     agentes = {}
     for _, fila in df.iterrows():
@@ -302,6 +306,17 @@ def cargar_agentes():
             agentes[("email", str(email).strip().lower())] = datos
         if not _vacio(nom):
             agentes[("nombre", str(nom).strip().lower())] = datos
+    return agentes
+
+
+def cargar_agentes():
+    """Si falla la lectura de la hoja (ej. límite de Google), se sigue usando
+    la última configuración buena en vez de mandar al agente al grupo por
+    defecto: así un fallo momentáneo no le cambia la columna donde reserva."""
+    agentes = _leer_agentes()
+    if agentes is None:
+        return st.session_state.get("_agentes_ok", {})
+    st.session_state["_agentes_ok"] = agentes
     return agentes
 
 
@@ -426,28 +441,64 @@ def breaks_de(df, quien):
     return resultado
 
 
-def inicios_libres(df, col):
-    """Horarios donde hay 2 casilleros seguidos libres en la columna del grupo."""
+def horarios_de(df, quien):
+    """Casilleros que el agente tiene tomados, en cualquier columna."""
+    cols = grupos_en(df)
+    if not cols:
+        return set()
+    return set(df.loc[(df[cols] == quien).any(axis=1), "Horario"])
+
+
+def inicios_libres(df, col, propios=frozenset()):
+    """Horarios donde hay 2 casilleros seguidos libres en la columna del grupo
+    (y que no se pisan con un break que el agente ya tiene)."""
     libres = []
     for i in range(len(df) - 1):
-        if df.iloc[i][col] == LIBRE and df.iloc[i + 1][col] == LIBRE:
-            libres.append(df.iloc[i]["Horario"])
+        h1, h2 = df.iloc[i]["Horario"], df.iloc[i + 1]["Horario"]
+        if (df.iloc[i][col] == LIBRE and df.iloc[i + 1][col] == LIBRE
+                and h1 not in propios and h2 not in propios):
+            libres.append(h1)
     return libres
 
 
-def reservar(quien, col, horario, cupo_max):
-    """Vuelve a leer la hoja justo antes de guardar, para no pisar
+def unir_horarios(horarios):
+    horarios = list(horarios)
+    if len(horarios) <= 1:
+        return "".join(horarios)
+    return ", ".join(horarios[:-1]) + " y " + horarios[-1]
+
+
+def reservar(quien, col, horarios, cupo_max):
+    """Reserva uno o varios breaks de una sola vez (todo o nada).
+    Vuelve a leer la hoja justo antes de guardar, para no pisar
     una reserva que otro agente haya hecho hace segundos."""
+    horarios = sorted(horarios, key=a_minutos)
     df = leer_hoy(ttl=0)
-    if len(breaks_de(df, quien)) >= cupo_max:
+    restantes = cupo_max - len(breaks_de(df, quien))
+    if restantes <= 0:
         return False, "Ya tenés todos tus breaks agendados para hoy."
-    pos = list(df.index[df["Horario"] == horario])
-    if not pos or pos[0] + 1 not in df.index:
-        return False, "Ese horario ya no está disponible. Elegí otro."
-    i = pos[0]
-    if df.loc[i, col] != LIBRE or df.loc[i + 1, col] != LIBRE:
-        return False, "Alguien acaba de tomar ese horario. Elegí otro."
-    df.loc[[i, i + 1], col] = quien
+    if len(horarios) > restantes:
+        return False, (f"Te queda{'n' if restantes > 1 else ''} {restantes} "
+                       f"break{'s' if restantes > 1 else ''} por agendar. Elegí de nuevo.")
+    propios = horarios_de(df, quien)
+    filas = []
+    for h in horarios:
+        pos = list(df.index[df["Horario"] == h])
+        if not pos or pos[0] + 1 not in df.index:
+            return False, f"El horario de las {h} ya no está disponible. No se guardó nada: elegí de nuevo."
+        i = pos[0]
+        for j in (i, i + 1):
+            if j in filas:
+                return False, ("Los horarios que elegiste se pisan entre sí. Cada break dura "
+                               "30 min: si los querés seguidos, elegí por ejemplo "
+                               f"{horarios[0]} y {fin_de(horarios[0])}.")
+            if df.loc[j, "Horario"] in propios:
+                return False, f"Ya tenés un break que se pisa con el de las {h}."
+            if df.loc[j, col] != LIBRE:
+                return False, (f"Alguien acaba de tomar el horario de las {h}. "
+                               "No se guardó nada: elegí de nuevo.")
+        filas += [i, i + 1]
+    df.loc[filas, col] = quien
     conn.update(worksheet="Hoy", data=df)
     st.cache_data.clear()
     return True, len(breaks_de(df, quien))
@@ -611,11 +662,14 @@ with col_izq:
         df_mostrar["Bloque"] = df_mostrar["Horario"] + " → " + tiempos_fin
         # El agente ve solo la disponibilidad de su grupo, en una columna
         # "Agente" como antes: los grupos no se muestran en la app.
+        # Sus propios breaks se muestran siempre, estén en la columna que
+        # estén (ej. si le cambiaron el grupo con un break ya agendado).
         df_mostrar["Agente"] = df_mostrar[col_mia]
+        df_mostrar.loc[df_mostrar["Horario"].isin(horarios_de(df_completo, nombre)), "Agente"] = nombre
 
         # Sugerencia personalizada (solo donde tu grupo tiene lugar)
         def _etiqueta_sugerencia(row):
-            if row[col_mia] != LIBRE or not HAY_SUGERENCIAS:
+            if row["Agente"] != LIBRE or not HAY_SUGERENCIAS:
                 return ""
             return evaluar(row["Horario"])[1]
 
@@ -623,7 +677,7 @@ with col_izq:
 
         # Métricas rápidas (de tu grupo)
         total = len(df_mostrar)
-        libres = int((df_mostrar[col_mia] == LIBRE).sum())
+        libres = int((df_mostrar["Agente"] == LIBRE).sum())
         ocupados = total - libres
 
         m1, m2, m3 = st.columns(3)
@@ -638,9 +692,17 @@ with col_izq:
                         'color: #4ADE80; font-weight: 500')
         ESTILO_OCUPADO = ('background-color: rgba(239, 68, 68, 0.07); '
                           'color: #F87171; font-weight: 500')
+        ESTILO_PROPIO = ('background-color: rgba(79, 126, 255, 0.14); '
+                         'color: #9DB8FF; font-weight: 600')
 
         def color_fila(row):
-            return [ESTILO_LIBRE if row["Agente"] == LIBRE else ESTILO_OCUPADO] * len(row)
+            if row["Agente"] == LIBRE:
+                estilo = ESTILO_LIBRE
+            elif row["Agente"] == nombre:
+                estilo = ESTILO_PROPIO
+            else:
+                estilo = ESTILO_OCUPADO
+            return [estilo] * len(row)
 
         columnas_tabla = ["Bloque", "Agente"] + (["Sugerencia"] if HAY_SUGERENCIAS else [])
         st.dataframe(
@@ -649,7 +711,8 @@ with col_izq:
             hide_index=True
         )
 
-        leyenda = ["↻ Se actualiza automáticamente cada 10 segundos"]
+        leyenda = ["↻ Se actualiza automáticamente cada 10 segundos",
+                   "🔵 = tus breaks"]
         if HAY_SUGERENCIAS and mapa_demanda:
             leyenda.append("🟢 Recomendado = baja demanda esperada" + (" dentro de tu turno" if franja else ""))
             leyenda.append("🔴 Alta demanda = mejor evitarlo si se puede")
@@ -682,15 +745,22 @@ with col_der:
             if not ok:
                 st.error(resultado)
             else:
+                pedido = sorted(pedido, key=a_minutos)
+                texto = unir_horarios(pedido)
                 try:
                     url_slack = st.secrets["slack_webhook"]
-                    detalle = "" if cupo == 1 else f" ({resultado}/{cupo})"
-                    mensaje = {"text": f"☕ *{nombre}* agendó su break{detalle} a las *{pedido}* hs."}
+                    if len(pedido) > 1:
+                        detalle = "" if resultado == len(pedido) else f" ({resultado}/{cupo})"
+                        horas = unir_horarios([f"*{h}*" for h in pedido])
+                        mensaje = {"text": f"☕ *{nombre}* agendó sus breaks{detalle} a las {horas} hs."}
+                    else:
+                        detalle = "" if cupo == 1 else f" ({resultado}/{cupo})"
+                        mensaje = {"text": f"☕ *{nombre}* agendó su break{detalle} a las *{texto}* hs."}
                     requests.post(url_slack, json=mensaje)
                 except Exception:
                     st.warning("⚠️ El break se guardó, pero falló la notificación a Slack.")
 
-                st.success(f"¡Listo! Reservaste a las {pedido} 🎉")
+                st.success(f"¡Listo! Reservaste a las {texto} 🎉")
                 st.balloons()
                 time.sleep(10)
                 st.rerun()
@@ -733,7 +803,8 @@ with col_der:
             if mis_breaks:
                 st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
 
-            horarios_libres = inicios_libres(df_mostrar, col_mia)
+            horarios_libres = inicios_libres(df_mostrar, col_mia,
+                                             horarios_de(df_completo, nombre))
 
             # Ordenamos mostrando primero los sugeridos para este agente (su turno
             # y la demanda), sin restringir: puede elegir cualquier horario libre.
@@ -768,24 +839,43 @@ with col_der:
                     </div>
                 """, unsafe_allow_html=True)
 
-                numero = len(mis_breaks) + 1
-                etiqueta_select = ("⏰ Horario de inicio" if cupo == 1
-                                   else f"⏰ Horario de inicio · break {numero} de {cupo}")
+                # Un selector por cada break que le falta agendar: el primero
+                # es obligatorio y los demás opcionales ("Lo agendo más tarde"),
+                # así puede confirmar todos juntos o de a uno.
+                restantes = cupo - len(mis_breaks)
+                SIN_ELEGIR = "__despues__"
+
+                def _etiqueta_opcion_o_despues(h):
+                    return "— Lo agendo más tarde —" if h == SIN_ELEGIR else _etiqueta_opcion(h)
 
                 # Una clave por vista, así al cambiar de vista vuelve al primer sugerido
-                clave_horario = "horario_elegido_" + ("todo" if vista == "Ver todo el día" else "ahora")
+                sufijo = "todo" if vista == "Ver todo el día" else "ahora"
+                claves = [f"horario_elegido_{k}_{sufijo}" for k in range(restantes)]
 
                 def _pedir_reserva():
-                    st.session_state["_reserva_pedida"] = st.session_state.get(clave_horario)
+                    elegidos = [st.session_state.get(c) for c in claves]
+                    st.session_state["_reserva_pedida"] = [h for h in elegidos
+                                                           if h and h != SIN_ELEGIR]
 
                 with st.form("form_reserva"):
-                    st.selectbox(
-                        etiqueta_select,
-                        horarios_libres,
-                        format_func=_etiqueta_opcion,
-                        key=clave_horario
-                    )
-                    st.caption("🔒 Se bloquearán 2 turnos de 15 min consecutivos.")
+                    for k, clave in enumerate(claves):
+                        numero = len(mis_breaks) + 1 + k
+                        if cupo == 1:
+                            etiqueta_select = "⏰ Horario de inicio"
+                        else:
+                            etiqueta_select = f"⏰ Break {numero} de {cupo}" + (" (opcional)" if k else "")
+                        st.selectbox(
+                            etiqueta_select,
+                            horarios_libres if k == 0 else [SIN_ELEGIR] + horarios_libres,
+                            format_func=_etiqueta_opcion_o_despues,
+                            key=clave
+                        )
+                    if restantes > 1:
+                        st.caption("🔒 Cada break bloquea 2 turnos de 15 min. Podés confirmar "
+                                   "todos juntos o dejar alguno para más tarde. Para tomarlos "
+                                   "seguidos, elegí horarios separados por 30 min (ej. 19:00 y 19:30).")
+                    else:
+                        st.caption("🔒 Se bloquearán 2 turnos de 15 min consecutivos.")
                     st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
-                    st.form_submit_button("☕ Confirmar Break", use_container_width=True,
-                                          on_click=_pedir_reserva)
+                    st.form_submit_button("☕ Confirmar breaks" if restantes > 1 else "☕ Confirmar Break",
+                                          use_container_width=True, on_click=_pedir_reserva)
