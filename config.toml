@@ -1,0 +1,10 @@
+# .streamlit/config.toml
+# Colores base de Streamlit. El diseño (modo oscuro y claro) se define
+# en el CSS de breaks.py; esto solo cubre lo que Streamlit pinta solo.
+[theme]
+base = "dark"
+backgroundColor          = "#0E0F11"
+secondaryBackgroundColor = "#1D1F23"
+textColor                = "#F3F3F4"
+primaryColor             = "#FF5023"   # naranja Fudo
+font = "sans serif"
