@@ -478,7 +478,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 # ─────────────────────────────────────────────
 #  CONFIGURACIÓN DE CADA AGENTE — hoja "Agentes"
-#  Columnas: Email | Nombre | Grupo | Breaks | Entrada | Salida
+#  Columnas: Email | Nombre | Grupo | Breaks | Entrada | Salida | Zona
 #    Email o Nombre: para identificar al agente (con uno alcanza;
 #                    el Nombre tiene que ser igual al que usa en la app)
 #    Grupo:   "Fijo", "Rotativo" o el nombre que se quiera
@@ -489,6 +489,12 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 #             tomarlos en horarios distintos o seguidos.
 #    Entrada / Salida: su turno (ej. 18:00 y 01:00). Si está cargado,
 #             la app le marca qué horarios le convienen. No bloquea nada.
+#             Siempre en hora de ARGENTINA, aunque el agente esté en otro país.
+#    Zona:    opcional, para quien trabaja desde otro país: "México",
+#             "Colombia", "Chile", etc. o una zona exacta como
+#             "America/Mexico_City". La app le muestra todos los horarios
+#             convertidos a su hora local (la hoja "Hoy", Slack y las
+#             reservas siguen en hora de Argentina). Vacío = Argentina.
 #  Si la hoja no existe o el agente no está, se usan los datos de los
 #  Secrets (grupo / breaks) o los valores por defecto. Cambios: hasta 1 min.
 #  Ojo: si a alguien se le cambia el grupo con breaks ya agendados ese día,
@@ -533,7 +539,7 @@ def _leer_agentes():
     df.columns = [str(c).strip().lower() for c in df.columns]
     agentes = {}
     for _, fila in df.iterrows():
-        datos = {k: fila.get(k) for k in ("grupo", "breaks", "entrada", "salida")}
+        datos = {k: fila.get(k) for k in ("grupo", "breaks", "entrada", "salida", "zona")}
         email = fila.get("email")
         nom = fila.get("nombre")
         if not _vacio(email):
@@ -595,16 +601,116 @@ def config_agente(email, nombre_agente):
         if salida <= entrada:          # turno que termina después de medianoche
             salida += 24 * 60
         franja_ag = (entrada, salida)
-    return GRUPOS[g.lower()], max(1, min(cupo_ag, 4)), franja_ag
+    return GRUPOS[g.lower()], max(1, min(cupo_ag, 4)), franja_ag, zona_de(dato("zona"))
+
+
+# Atajos para la columna "Zona" (también acepta zonas exactas, ej. "America/Mexico_City")
+ZONAS_ATAJO = {
+    "argentina": "America/Argentina/Buenos_Aires",
+    "mexico": "America/Mexico_City", "méxico": "America/Mexico_City",
+    "colombia": "America/Bogota", "peru": "America/Lima", "perú": "America/Lima",
+    "chile": "America/Santiago", "uruguay": "America/Montevideo",
+    "paraguay": "America/Asuncion", "venezuela": "America/Caracas",
+    "bolivia": "America/La_Paz", "ecuador": "America/Guayaquil",
+    "brasil": "America/Sao_Paulo", "españa": "Europe/Madrid", "espana": "Europe/Madrid",
+}
+
+
+def zona_de(valor):
+    """Zona horaria del agente; si está vacía o no se reconoce, Argentina."""
+    if _vacio(valor):
+        return TZ_ARG
+    texto = str(valor).strip()
+    try:
+        return pytz.timezone(ZONAS_ATAJO.get(texto.lower(), texto))
+    except pytz.UnknownTimeZoneError:
+        return TZ_ARG
 
 
 nombre = st.session_state.nombre
-grupo, cupo, franja = config_agente(st.session_state.email, nombre)
+grupo, cupo, franja, ZONA = config_agente(st.session_state.email, nombre)
 col_mia = grupo
 
 
 def texto_hora(m):
     return f"{(m // 60) % 24:02d}:{m % 60:02d}"
+
+
+# ─────────────────────────────────────────────
+#  HORA LOCAL DEL AGENTE
+#  Todo se guarda y se calcula en hora de Argentina; solo lo que se
+#  muestra en pantalla se pasa a la hora local del agente con ver().
+# ─────────────────────────────────────────────
+_utc_ahora = datetime.now(pytz.utc)
+DESFASE = int((_utc_ahora.astimezone(ZONA).utcoffset()
+               - _utc_ahora.astimezone(TZ_ARG).utcoffset()).total_seconds() // 60)
+
+
+def ver_m(m):
+    """Minutos en hora de Argentina -> 'HH:MM' en la hora local del agente."""
+    return texto_hora(m + DESFASE)
+
+
+def ver(hora_str):
+    """'HH:MM' de Argentina -> 'HH:MM' en la hora local del agente."""
+    if not DESFASE:
+        return hora_str
+    try:
+        h, m = map(int, str(hora_str).split(':'))
+    except ValueError:
+        return hora_str
+    return ver_m(h * 60 + m)
+
+
+# ─────────────────────────────────────────────
+#  HORARIOS DE LA GRILLA
+#  El día de breaks va de GRILLA_DESDE hasta GRILLA_HASTA (último bloque
+#  de 15 min). Pasada la medianoche sigue siendo el mismo día: los
+#  horarios entre 00:00 y FIN_DE_DIA cuentan como 24:00, 24:15, etc.
+#  Si a la hoja "Hoy" le faltan filas, la app las agrega sola.
+# ─────────────────────────────────────────────
+GRILLA_DESDE = "09:00"
+GRILLA_HASTA = "00:15"       # el break de 00:00 termina 00:30
+FIN_DE_DIA = 6 * 60          # antes de las 6 AM se considera el día anterior
+
+
+def a_minutos(hora_str):
+    """'HH:MM' -> minutos del día de breaks (00:30 -> 24:30 = 1470)."""
+    try:
+        h, m = map(int, str(hora_str).split(':'))
+    except Exception:
+        return -1
+    total = h * 60 + m
+    return total + 24 * 60 if total < FIN_DE_DIA else total
+
+
+def _horarios_grilla():
+    m, fin = a_minutos(GRILLA_DESDE), a_minutos(GRILLA_HASTA)
+    lista = []
+    while m <= fin:
+        lista.append(texto_hora(m))
+        m += 15
+    return lista
+
+
+HORARIOS_GRILLA = _horarios_grilla()
+
+
+# ─────────────────────────────────────────────
+#  BLOQUE DE MEDIANOCHE (00:00 a 00:30)
+#  Solo lo ve quien puede tomar ese break sin que caiga en su última
+#  hora de turno, o sea, quien sale a la 01:30 o más tarde (hoy, Ivan Z
+#  que trabaja de 20 a 03). Para el resto la grilla termina a las 00:00,
+#  como antes. Depende de Entrada / Salida de la hoja "Agentes".
+# ─────────────────────────────────────────────
+MEDIANOCHE = 24 * 60
+VE_MEDIANOCHE = (franja is not None and franja[0] <= MEDIANOCHE
+                 and MEDIANOCHE + 30 <= franja[1] - 60)
+
+
+def visible(hora_str):
+    """El bloque de 15 min se le muestra a este agente."""
+    return VE_MEDIANOCHE or a_minutos(hora_str) < MEDIANOCHE
 
 
 def normalizar_hoy(df):
@@ -626,6 +732,13 @@ def normalizar_hoy(df):
             df[col] = LIBRE
         df[col] = df[col].fillna(LIBRE).astype(str).str.strip().replace("", LIBRE)
     df["Horario"] = pd.to_datetime(df["Horario"]).dt.strftime('%H:%M')
+    # Filas que falten de la grilla (ej. 00:00 y 00:15), en Libre
+    faltan = [h for h in HORARIOS_GRILLA if h not in set(df["Horario"])]
+    if faltan:
+        df = pd.concat([df, pd.DataFrame({"Horario": faltan, **{c: LIBRE for c in columnas}})],
+                       ignore_index=True)
+    # Orden del día de breaks: 23:45 va antes que 00:00
+    df = df.sort_values("Horario", key=lambda s: s.map(a_minutos), kind="stable")
     return df[["Horario"] + columnas].reset_index(drop=True)
 
 
@@ -638,14 +751,6 @@ def leer_hoy(ttl=10):
 
 
 df_completo = leer_hoy()
-
-
-def a_minutos(hora_str):
-    try:
-        h, m = map(int, str(hora_str).split(':'))
-        return h * 60 + m
-    except Exception:
-        return -1
 
 
 def fin_de(hora_str, minutos=30):
@@ -717,19 +822,21 @@ def reservar(quien, col, horarios, cupo_max):
     propios = horarios_de(df, quien)
     filas = []
     for h in horarios:
+        if not (visible(h) and visible(fin_de(h, 15))):
+            return False, f"El horario de las {ver(h)} no está disponible para vos. No se guardó nada."
         pos = list(df.index[df["Horario"] == h])
         if not pos or pos[0] + 1 not in df.index:
-            return False, f"El horario de las {h} ya no está disponible. No se guardó nada: elegí de nuevo."
+            return False, f"El horario de las {ver(h)} ya no está disponible. No se guardó nada: elegí de nuevo."
         i = pos[0]
         for j in (i, i + 1):
             if j in filas:
                 return False, ("Los horarios que elegiste se pisan entre sí. Cada break dura "
                                "30 min: si los querés seguidos, elegí por ejemplo "
-                               f"{horarios[0]} y {fin_de(horarios[0])}.")
+                               f"{ver(horarios[0])} y {ver(fin_de(horarios[0]))}.")
             if df.loc[j, "Horario"] in propios:
-                return False, f"Ya tenés un break que se pisa con el de las {h}."
+                return False, f"Ya tenés un break que se pisa con el de las {ver(h)}."
             if df.loc[j, col] != LIBRE:
-                return False, (f"Alguien acaba de tomar el horario de las {h}. "
+                return False, (f"Alguien acaba de tomar el horario de las {ver(h)}. "
                                "No se guardó nada: elegí de nuevo.")
         filas += [i, i + 1]
     df.loc[filas, col] = quien
@@ -835,7 +942,9 @@ HAY_SUGERENCIAS = SUGERENCIAS_ACTIVADAS and (bool(mapa_demanda) or bool(franja))
 #  HORA ACTUAL Y DATOS DEL AGENTE PARA LA PANTALLA
 # ─────────────────────────────────────────────
 ahora_dt = datetime.now(TZ_ARG)
-minutos_ahora = ahora_dt.hour * 60 + ahora_dt.minute
+ahora_local = ahora_dt.astimezone(ZONA)          # lo que ve el agente
+# Minutos del día de breaks: de madrugada se sigue contando el día anterior
+minutos_ahora = a_minutos(ahora_dt.strftime('%H:%M'))
 mis_horarios = horarios_de(df_completo, nombre)
 mis_breaks = breaks_de(df_completo, nombre)
 
@@ -849,8 +958,7 @@ def _duracion(minutos):
 
 def cuenta_regresiva(inicio):
     """('Empieza en 33 min', '') / ('En curso · …', '') / ('Ya terminó', 'gris')."""
-    ahora = minutos_ahora + (24 * 60 if minutos_ahora < 6 * 60 else 0)   # madrugada
-    falta = a_minutos(inicio) - ahora
+    falta = a_minutos(inicio) - minutos_ahora
     if falta > 0:
         return f"Empieza en {_duracion(falta)}", ""
     if falta > -30:
@@ -891,14 +999,19 @@ with st.container(key="barra_superior", horizontal=True, horizontal_alignment="d
 #  SALUDO
 # ─────────────────────────────────────────────
 nombre_corto = nombre.split()[0]
-fecha_txt = f"{DIAS[ahora_dt.weekday()]} {ahora_dt.day} de {MESES[ahora_dt.month - 1]}"
+fecha_txt = f"{DIAS[ahora_local.weekday()]} {ahora_local.day} de {MESES[ahora_local.month - 1]}"
 if cupo == 1:
     sub_txt = "Hoy tenés <strong>1 break de 30 minutos</strong>."
 else:
     sub_txt = (f"Hoy tenés <strong>{cupo} breaks de 30 minutos</strong>. "
                "Podés tomarlos separados o seguidos.")
 if franja and SUGERENCIAS_ACTIVADAS:
-    sub_txt += f" Tu turno: {texto_hora(franja[0])} a {texto_hora(franja[1])}."
+    sub_txt += f" Tu turno: {ver_m(franja[0])} a {ver_m(franja[1])}."
+if DESFASE:
+    _dif = abs(DESFASE) / 60
+    _dif = f"{_dif:g} h".replace(".", ",")
+    sub_txt += (f"<br>Ves todos los horarios en <strong>tu hora local</strong> "
+                f"(en Argentina es {_dif} {'más' if DESFASE < 0 else 'menos'}).")
 
 pintar(f"""
     <div class='bk-hero'>
@@ -907,7 +1020,7 @@ pintar(f"""
             <h1>Hola, {html.escape(nombre_corto)}</h1>
             <p class='sub'>{sub_txt}</p>
         </div>
-        <div class='bk-ahora'>{ICONOS['reloj18']}Ahora <b>{ahora_dt.strftime('%H:%M')}</b></div>
+        <div class='bk-ahora'>{ICONOS['reloj18']}Ahora <b>{ahora_local.strftime('%H:%M')}</b></div>
     </div>
 """)
 
@@ -925,7 +1038,7 @@ def html_grilla(df, desde_ahora):
     for _, fila in df.iterrows():
         h = fila["Horario"]
         m = a_minutos(h)
-        if m < 0 or (desde_ahora and m // 60 < minutos_ahora // 60):
+        if m < 0 or not visible(h) or (desde_ahora and m // 60 < minutos_ahora // 60):
             continue
         quien = nombre if h in mis_horarios else fila[col_mia]
         if quien == nombre:
@@ -946,9 +1059,11 @@ def html_grilla(df, desde_ahora):
         elif m <= minutos_ahora < m + 15:
             clase += " ahora"
         texto = html.escape(str(texto))
-        celda = (f"<div class='bk-cel {clase}' title='{h} · {texto}'>"
-                 f"<span class='t'>{h}</span><span class='l'><i></i>{texto}</span></div>")
-        filas.setdefault(m // 60, {})[(m % 60) // 15] = celda
+        h_ver = ver(h)
+        celda = (f"<div class='bk-cel {clase}' title='{h_ver} · {texto}'>"
+                 f"<span class='t'>{h_ver}</span><span class='l'><i></i>{texto}</span></div>")
+        m_ver = m + DESFASE          # la fila y la columna, según la hora local
+        filas.setdefault(m_ver // 60, {})[(m_ver % 60) // 15] = celda
 
     if not filas:
         return "<div class='bk-vacio'>No quedan bloques por hoy.</div>"
@@ -993,7 +1108,7 @@ with col_izq:
                                          label_visibility="collapsed") or VISTAS[0]
         desde_ahora = vista == VISTAS[0]
 
-        df_mostrar = df_completo.copy()
+        df_mostrar = df_completo[df_completo["Horario"].map(visible)].copy()
         if desde_ahora:
             df_mostrar = df_mostrar[df_mostrar["Horario"].apply(a_minutos) >= minutos_ahora]
 
@@ -1070,7 +1185,7 @@ with col_der:
                 except Exception:
                     st.warning("El break se guardó, pero falló la notificación a Slack.")
 
-                st.success(f"¡Listo! Reservaste a las {texto} 🎉")
+                st.success(f"¡Listo! Reservaste a las {unir_horarios(ver(h) for h in pedido)} 🎉")
                 st.balloons()
                 time.sleep(10)
                 st.rerun()
@@ -1085,7 +1200,7 @@ with col_der:
                         <span class='bk-etq'>{titulo}</span>
                         <span class='bk-cuenta {tono}'>{ICONOS['reloj']}{cuenta}</span>
                     </div>
-                    <div class='bk-hora-grande'><b>{brk["inicio"]}</b><span>→ {fin_de(brk["inicio"])}</span></div>
+                    <div class='bk-hora-grande'><b>{ver(brk["inicio"])}</b><span>→ {ver(fin_de(brk["inicio"]))}</span></div>
                 """)
                 if st.button("Liberar este horario", icon=":material/delete:",
                              key=f"liberar_{brk['col']}_{brk['inicio']}", width="stretch"):
@@ -1107,9 +1222,9 @@ with col_der:
             def _etiqueta_opcion(h):
                 etiqueta = evaluar(h)[1] if HAY_SUGERENCIAS else ""
                 if not etiqueta:
-                    return h
+                    return ver(h)
                 emoji, texto = etiqueta.split(" ", 1)
-                return f"{emoji} {h} · {texto}"
+                return f"{emoji} {ver(h)} · {texto}"
 
             with st.container(key="pendiente"):
                 if cupo == 1:
@@ -1164,7 +1279,7 @@ with col_der:
                                        "seguidos, elegí horarios separados por 30 min (ej. 19:00 y 19:30).")
                         elif mis_breaks:
                             st.caption("Se bloquean 2 turnos de 15 min. Para tomarlo seguido al "
-                                       f"anterior, elegí {fin_de(mis_breaks[-1]['inicio'])}.")
+                                       f"anterior, elegí {ver(fin_de(mis_breaks[-1]['inicio']))}.")
                         else:
                             st.caption("Se bloquean 2 turnos de 15 min consecutivos.")
                         st.form_submit_button("Confirmar breaks" if restantes > 1 else "Confirmar break",
